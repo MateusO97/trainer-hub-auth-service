@@ -1,0 +1,44 @@
+# OS Files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# Node (if using any JS tools)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Python (if using any Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+
+# Local configuration
+.env
+.env.local
+localhost.pem
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*~
+.tmp/
