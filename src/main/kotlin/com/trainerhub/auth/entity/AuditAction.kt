@@ -1,0 +1,15 @@
+package com.trainerhub.auth.entity
+
+enum class AuditAction {
+    LOGIN,
+    LOGIN_FAILED,
+    LOGOUT,
+    TOKEN_REFRESH,
+    PASSWORD_RESET_REQUEST,
+    PASSWORD_RESET_CONFIRM,
+    OAUTH_LOGIN,
+    ACCOUNT_LOCKED,
+    ACCOUNT_UNLOCKED,
+    ROLE_CHANGED,
+    TOKEN_VALIDATED,
+}
