@@ -82,6 +82,9 @@ jwt:
   refresh-expiration: ${REFRESH_TOKEN_EXPIRATION:604800} # 7 days in seconds
   issuer: trainer-hub-auth-service
   algorithm: RS256
+  public-key-pem: ${JWT_PUBLIC_KEY_PEM:}
+  private-key-pem: ${JWT_PRIVATE_KEY_PEM:}
+  allow-generated-keys: ${JWT_ALLOW_GENERATED_KEYS:true}
 
 rate-limit:
   requests-per-minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:100}
