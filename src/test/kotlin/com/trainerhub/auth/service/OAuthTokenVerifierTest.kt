@@ -5,17 +5,11 @@ import com.trainerhub.auth.exception.UnauthorizedException
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.SignatureAlgorithm
 import java.security.KeyPairGenerator
-import java.time.Instant
-import java.time.temporal.ChronoUnit
-import java.util.Base64
 import java.util.Date
 import java.util.UUID
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class GoogleOAuthTokenVerifierTest {
     private lateinit var verifier: GoogleOAuthTokenVerifier

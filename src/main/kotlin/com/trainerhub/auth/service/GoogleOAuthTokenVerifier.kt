@@ -1,7 +1,7 @@
 package com.trainerhub.auth.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trainerhub.auth.config.AppConfig
+import com.fasterxml.jackson.module.kotlin.readValue
 import com.trainerhub.auth.entity.OAuthProvider
 import com.trainerhub.auth.exception.UnauthorizedException
 import io.jsonwebtoken.Claims
@@ -13,20 +13,13 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.security.KeyFactory
 import java.security.PublicKey
-import java.security.spec.X509EncodedKeySpec
+import java.security.spec.InvalidKeySpecException
 import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-
-data class OAuthIdentity(
-    val providerUserId: String,
-    val email: String,
-    val firstName: String?,
-    val lastName: String?,
-)
 
 data class GoogleJwksKey(
     val kty: String,
@@ -46,34 +39,29 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
     private val objectMapper = ObjectMapper()
     private val httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
     private val jwksCache = ConcurrentHashMap<String, CachedKey>()
-    private val JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
-    private val LAST_JWKS_FETCH = mutableMapOf<String, Instant>()
-    private val JWKS_CACHE_TTL = Duration.ofHours(1)
+    private val jwksUrl = "https://www.googleapis.com/oauth2/v3/certs"
+    private val lastJwksFetch = mutableMapOf<String, Instant>()
+    private val jwksCacheTtl = Duration.ofHours(1)
 
     data class CachedKey(val key: PublicKey, val cachedAt: Instant)
 
-    override fun verify(provider: OAuthProvider, idToken: String): OAuthIdentity {
+    override fun verify(
+        provider: OAuthProvider,
+        idToken: String,
+    ): OAuthIdentity {
         if (provider != OAuthProvider.GOOGLE) {
             throw UnauthorizedException("This verifier only handles Google OAuth")
         }
 
         try {
-            // Decode without verification first to get the kid (key ID)
-            val decodedToken =
-                Jwts.parserBuilder()
-                    .build()
-                    .parseClaimsJwt(idToken) as? Claims
-                    ?: throw UnauthorizedException("Invalid token format")
-
-            val header = Jwts.parserBuilder().build().parseClaimsJwt(idToken).header
-            val kid = header["kid"] as? String ?: throw UnauthorizedException("Missing kid in token")
+            val kid = extractKid(idToken)
 
             // Get the public key
             val publicKey = getPublicKeyFromJwks(kid)
 
             // Verify signature and get claims
             val claims =
-                Jwts.parserBuilder()
+                Jwts.parser()
                     .setSigningKey(publicKey)
                     .build()
                     .parseClaimsJws(idToken)
@@ -91,23 +79,30 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
         } catch (e: JwtException) {
             logger.warn("JWT validation failed for Google OAuth token: ${e.message}")
             throw UnauthorizedException("Invalid OAuth token signature or claims")
-        } catch (e: Exception) {
+        } catch (e: IllegalArgumentException) {
             logger.error("Unexpected error validating Google token", e)
             throw UnauthorizedException("OAuth verification failed")
         }
     }
 
+    private fun extractKid(idToken: String): String {
+        val headerPart = idToken.split(".").getOrNull(0) ?: throw UnauthorizedException("Invalid token format")
+        val headerJson = String(Base64.getUrlDecoder().decode(headerPart))
+        val headerMap: Map<String, Any> = objectMapper.readValue(headerJson)
+        return headerMap["kid"] as? String ?: throw UnauthorizedException("Missing kid in token")
+    }
+
     private fun getPublicKeyFromJwks(kid: String): PublicKey {
         // Check cache first
         val cached = jwksCache[kid]
-        if (cached != null && cached.cachedAt.plus(JWKS_CACHE_TTL).isAfter(Instant.now())) {
+        if (cached != null && cached.cachedAt.plus(jwksCacheTtl).isAfter(Instant.now())) {
             logger.debug("Using cached public key for kid: $kid")
             return cached.key
         }
 
         // Check if we need to refetch JWKS (cache TTL expired)
-        val lastFetch = LAST_JWKS_FETCH["google"]
-        if (lastFetch != null && lastFetch.plus(JWKS_CACHE_TTL).isAfter(Instant.now())) {
+        val lastFetch = lastJwksFetch["google"]
+        if (lastFetch != null && lastFetch.plus(jwksCacheTtl).isAfter(Instant.now())) {
             // Check if kid was in previous fetch
             if (jwksCache.containsKey(kid)) {
                 logger.debug("Using cached key for kid: $kid (within JWKS TTL)")
@@ -121,15 +116,14 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
 
         // Cache all keys
         for (key in jwks.keys) {
-            try {
+            runCatching {
                 val publicKey = buildPublicKeyFromJwk(key)
                 jwksCache[key.kid] = CachedKey(publicKey, Instant.now())
-            } catch (e: Exception) {
-                logger.warn("Failed to process JWK key ${key.kid}: ${e.message}")
             }
+                .onFailure { err -> logger.warn("Failed to process JWK key ${key.kid}: ${err.message}") }
         }
 
-        LAST_JWKS_FETCH["google"] = Instant.now()
+        lastJwksFetch["google"] = Instant.now()
 
         return jwksCache[kid]?.key
             ?: throw UnauthorizedException("Key ID not found in Google JWKS: $kid")
@@ -139,7 +133,7 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
         try {
             val request =
                 HttpRequest.newBuilder()
-                    .uri(URI.create(JWKS_URL))
+                    .uri(URI.create(jwksUrl))
                     .timeout(Duration.ofSeconds(5))
                     .setHeader("User-Agent", "trainer-hub-auth-service/1.0")
                     .GET()
@@ -152,16 +146,21 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
             }
 
             return objectMapper.readValue(response.body(), GoogleJwks::class.java)
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
+            logger.error("Failed to fetch Google JWKS", e)
+            throw UnauthorizedException("Failed to retrieve OAuth verification keys")
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            logger.error("Interrupted while fetching Google JWKS", e)
+            throw UnauthorizedException("Failed to retrieve OAuth verification keys")
+        } catch (e: com.fasterxml.jackson.core.JsonProcessingException) {
             logger.error("Failed to fetch Google JWKS", e)
             throw UnauthorizedException("Failed to retrieve OAuth verification keys")
         }
     }
 
     private fun buildPublicKeyFromJwk(jwk: GoogleJwksKey): PublicKey {
-        if (jwk.kty != "RSA") {
-            throw IllegalArgumentException("Only RSA keys supported, got: ${jwk.kty}")
-        }
+        require(jwk.kty == "RSA") { "Only RSA keys supported, got: ${jwk.kty}" }
 
         val nBytes = Base64.getUrlDecoder().decode(jwk.n)
         val eBytes = Base64.getUrlDecoder().decode(jwk.e)
@@ -171,7 +170,11 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
 
         val keySpec = java.security.spec.RSAPublicKeySpec(n, e)
         val keyFactory = KeyFactory.getInstance("RSA")
-        return keyFactory.generatePublic(keySpec)
+        return try {
+            keyFactory.generatePublic(keySpec)
+        } catch (ex: InvalidKeySpecException) {
+            throw UnauthorizedException("Invalid JWK key spec: ${ex.message}", ex)
+        }
     }
 
     private fun validateClaims(claims: Claims) {
