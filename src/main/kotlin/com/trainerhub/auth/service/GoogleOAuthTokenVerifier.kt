@@ -1,6 +1,7 @@
 package com.trainerhub.auth.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.trainerhub.auth.entity.OAuthProvider
 import com.trainerhub.auth.exception.UnauthorizedException
@@ -34,10 +35,11 @@ data class GoogleJwks(
 )
 
 @Service
-class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
+class GoogleOAuthTokenVerifier(
+    private val httpClient: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(),
+    private val objectMapper: ObjectMapper = jacksonObjectMapper(),
+) : OAuthTokenVerifier {
     private val logger = LoggerFactory.getLogger(javaClass)
-    private val objectMapper = ObjectMapper()
-    private val httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
     private val jwksCache = ConcurrentHashMap<String, CachedKey>()
     private val jwksUrl = "https://www.googleapis.com/oauth2/v3/certs"
     private val lastJwksFetch = mutableMapOf<String, Instant>()
@@ -86,7 +88,7 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
     }
 
     private fun extractKid(idToken: String): String {
-        val headerPart = idToken.split(".").getOrNull(0) ?: throw UnauthorizedException("Invalid token format")
+        val headerPart = idToken.split('.').getOrNull(0) ?: throw UnauthorizedException("Invalid token format")
         val headerJson = String(Base64.getUrlDecoder().decode(headerPart))
         val headerMap: Map<String, Any> = objectMapper.readValue(headerJson)
         return headerMap["kid"] as? String ?: throw UnauthorizedException("Missing kid in token")
@@ -191,7 +193,10 @@ class GoogleOAuthTokenVerifier : OAuthTokenVerifier {
         }
 
         // Validate aud (audience) - should be the client ID
-        val audience = claims["aud"] as? String ?: throw UnauthorizedException("Missing aud claim")
+        val audClaim = claims["aud"]
+        val audience =
+            claims.audience ?: (audClaim as? String) ?: (audClaim as? Collection<*>)?.firstOrNull()?.toString()
+                ?: throw UnauthorizedException("Missing aud claim")
         // In real scenario, validate against GOOGLE_CLIENT_ID configured in app
         logger.debug("Google OAuth token audience: $audience")
 

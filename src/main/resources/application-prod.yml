@@ -4,6 +4,9 @@ logging:
     com.trainerhub: INFO
     org.springframework.web: WARN
 
+jwt:
+  allow-generated-keys: false
+
 springdoc:
   swagger-ui:
     enabled: false
