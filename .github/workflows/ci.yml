@@ -80,10 +80,32 @@ jobs:
       - name: Build jar
         run: ./gradlew bootJar
 
-      - name: Start app
+      - name: Start app in background
         run: |
           java -jar build/libs/*.jar --spring.profiles.active=test > app.log 2>&1 &
-          sleep 20
+          echo $! > app.pid
+
+      - name: Wait for app to be ready
+        run: |
+          echo "Waiting for application to start..."
+          for i in {1..60}; do
+            if curl -s http://localhost:8081/actuator/health > /dev/null; then
+              echo "Application is ready!"
+              exit 0
+            fi
+            echo "Attempt $i/60: Application not ready yet..."
+            sleep 2
+          done
+          echo "Application failed to start within 120 seconds"
+          echo "=== Application logs ==="
+          cat app.log
+          exit 1
+
+      - name: Show application info
+        run: |
+          echo "Application PID: $(cat app.pid)"
+          echo "=== Last 50 lines of app.log ==="
+          tail -50 app.log
 
       - name: Install Newman
         run: npm install -g newman
@@ -92,3 +114,18 @@ jobs:
         run: |
           newman run postman/trainer-hub-auth-service.postman_collection.json \
             -e postman/local.postman_environment.json
+
+      - name: Show application logs on failure
+        if: failure()
+        run: |
+          echo "=== Full application logs ==="
+          cat app.log
+          echo "=== Process status ==="
+          ps aux | grep java || true
+
+      - name: Stop application
+        if: always()
+        run: |
+          if [ -f app.pid ]; then
+            kill $(cat app.pid) || true
+          fi
