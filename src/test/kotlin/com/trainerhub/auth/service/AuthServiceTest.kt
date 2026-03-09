@@ -1,6 +1,7 @@
 package com.trainerhub.auth.service
 
 import com.trainerhub.auth.config.JwtProperties
+import com.trainerhub.auth.config.OAuthVerifierFactory
 import com.trainerhub.auth.entity.UserEntity
 import com.trainerhub.auth.entity.UserRole
 import com.trainerhub.auth.exception.UnauthorizedException
@@ -28,7 +29,7 @@ class AuthServiceTest {
     private val passwordEncoder = BCryptPasswordEncoder(12)
     private val loginAttemptService = LoginAttemptService()
     private val auditLogService = mockk<AuditLogService>(relaxed = true)
-    private val oauthTokenVerifier = mockk<OAuthTokenVerifier>()
+    private val oAuthVerifierFactory = mockk<OAuthVerifierFactory>(relaxed = true)
 
     private val authService =
         AuthService(
@@ -42,7 +43,7 @@ class AuthServiceTest {
             passwordEncoder = passwordEncoder,
             loginAttemptService = loginAttemptService,
             auditLogService = auditLogService,
-            oAuthTokenVerifier = oauthTokenVerifier,
+            oAuthVerifierFactory = oAuthVerifierFactory,
         )
 
     init {

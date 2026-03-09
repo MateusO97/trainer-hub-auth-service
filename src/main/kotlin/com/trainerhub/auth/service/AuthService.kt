@@ -1,6 +1,7 @@
 package com.trainerhub.auth.service
 
 import com.trainerhub.auth.config.JwtProperties
+import com.trainerhub.auth.config.OAuthVerifierFactory
 import com.trainerhub.auth.dto.AuthTokensResponse
 import com.trainerhub.auth.dto.GenericMessageResponse
 import com.trainerhub.auth.dto.PublicUserResponse
@@ -43,7 +44,7 @@ class AuthService(
     private val passwordEncoder: PasswordEncoder,
     private val loginAttemptService: LoginAttemptService,
     private val auditLogService: AuditLogService,
-    private val oAuthTokenVerifier: OAuthTokenVerifier,
+    private val oAuthVerifierFactory: OAuthVerifierFactory,
 ) {
     @Transactional
     fun login(
@@ -224,7 +225,8 @@ class AuthService(
         ipAddress: String?,
         userAgent: String?,
     ): AuthTokensResponse {
-        val identity = oAuthTokenVerifier.verify(provider, idToken)
+        val verifier = oAuthVerifierFactory.getVerifier(provider)
+        val identity = verifier.verify(provider, idToken)
         val existing = userRepository.findByEmail(identity.email.trim().lowercase())
 
         val user =
